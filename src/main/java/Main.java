@@ -19,6 +19,11 @@ import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 public class Main {
   private static final Gson GSON = new Gson();
@@ -120,31 +125,42 @@ public class Main {
 
         List<Peer> peers = getPeersFromTracker(metaInfo);
 
-        Socket socket = Networks.createConnection(peers.get(0).ip.getHostAddress(), peers.get(0).port);
-
-        Networks.preDownload(socket, metaInfo);
+        ConnectionPool connectionPool = ConnectionPool.create(peers);
+        System.out.println("Connection Pool Created");
 
         List<String> pieceHashes = getPieceHashes(metaInfo.info.pieces);
+        System.err.println("Number of tasks = " + pieceHashes.size());
 
-        List<byte[]> pieces = new ArrayList<>();
-        for (int pieceId = 0; pieceId < pieceHashes.size(); pieceId++) {
-          int pieceLength = pieceLength(pieceId, pieceHashes, metaInfo);
-          byte[] piece = Networks.downloadPiece(pieceId, pieceLength, socket, pieceHashes);
-          pieces.add(piece);
+        List<DownloadTask> downloadTasks = IntStream.range(0, pieceHashes.size())
+            .mapToObj(pieceId -> new DownloadTask(pieceId, pieceLength(pieceId, pieceHashes, metaInfo), pieceHashes,
+                metaInfo, connectionPool)
+            ).collect(Collectors.toList());
+
+        ExecutorService executorService = Executors.newFixedThreadPool(4);
+        List<Future<PieceByte>> futures = executorService.invokeAll(downloadTasks);
+
+        List<PieceByte> results = new ArrayList<>();
+
+        for (Future<PieceByte> future : futures) {
+          results.add(future.get());
         }
+        results.sort(Comparator.comparing(PieceByte::getPieceId));
 
         ByteBuffer allBytes = ByteBuffer.allocate((int) metaInfo.info.length);
 
-        pieces.forEach(allBytes::put);
+        results.forEach(pieceByte -> allBytes.put(pieceByte.data));
 
         Files.write(new File(outputPath).toPath(), allBytes.array());
 
         System.out.printf("Downloaded %s to %s.%n", args[3], outputPath);
 
-        socket.close();
+        executorService.shutdownNow();
+
+        connectionPool.closeConnections();
 
         break;
       }
+
       default:
         System.out.println("Unknown command: " + command);
         break;

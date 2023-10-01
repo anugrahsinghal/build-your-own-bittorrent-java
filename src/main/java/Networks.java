@@ -1,3 +1,5 @@
+import lombok.SneakyThrows;
+
 import javax.net.SocketFactory;
 import java.io.EOFException;
 import java.io.IOException;
@@ -19,12 +21,11 @@ public class Networks {
   public static final byte UNCHOKE = 1;
   public static final byte INTERESTED = 2;
 
-  public static final int BLOCK_SIZE = 16 * 1024;
+  public static int BLOCK_SIZE = 16 * 1024;
 
   static byte[] createPeerMessage(int messageId, byte[] payload) {
-//    byte[] messsage = new byte[4+1+payload.length];
-    final int messageLength = 1 + payload.length;
-    final ByteBuffer peerMessageBuffer = ByteBuffer.allocate(4 + 1 + payload.length);
+    int messageLength = 1 + payload.length;
+    ByteBuffer peerMessageBuffer = ByteBuffer.allocate(4 + 1 + payload.length);
     peerMessageBuffer.putInt(messageLength);
     peerMessageBuffer.put((byte) messageId);
     peerMessageBuffer.put(payload);
@@ -33,20 +34,20 @@ public class Networks {
   }
 
   static byte[] waitFor(Socket socket, byte expectedMessageId) throws IOException {
-    System.out.println("expectedMessageId = " + expectedMessageId);
+    System.out.println(Thread.currentThread().getName() + " expectedMessageId = " + expectedMessageId);
 
     while (true) {
       byte[] messageLengthPrefix = new byte[4];
       readFully(socket.getInputStream(), messageLengthPrefix);
 
       int messageLength = ByteBuffer.wrap(messageLengthPrefix).order(ByteOrder.BIG_ENDIAN).getInt();
-      System.out.println("messageLength = " + messageLength);
+      System.out.println(Thread.currentThread().getName() + " messageLength = " + messageLength);
 
       byte[] receivedMessageId = new byte[1];
       readFully(socket.getInputStream(), receivedMessageId);
 
-      final byte messageId = ByteBuffer.wrap(receivedMessageId).order(ByteOrder.BIG_ENDIAN).get();
-      System.out.println("messageId = " + messageId);
+      byte messageId = ByteBuffer.wrap(receivedMessageId).order(ByteOrder.BIG_ENDIAN).get();
+      System.out.println(Thread.currentThread().getName() + " messageId = " + messageId);
 
       byte[] payload = new byte[messageLength - 1];
       readFully(socket.getInputStream(), payload);
@@ -54,7 +55,7 @@ public class Networks {
       if (messageId == expectedMessageId) {
         return payload;
       } else {
-        System.out.println("Repeat loop");
+        System.out.println(Thread.currentThread().getName() + " Repeat loop");
       }
     }
   }
@@ -70,7 +71,8 @@ public class Networks {
     }
   }
 
-  static void preDownload(Socket socket, MetaInfo metaInfo) throws IOException {
+  @SneakyThrows
+  static void preDownload(Socket socket, MetaInfo metaInfo) {
     performHandshake(socket, metaInfo);
 
     Networks.waitFor(socket, Networks.BIT_FIELD);
@@ -81,10 +83,10 @@ public class Networks {
   }
 
   static byte[] performHandshake(Socket socket, MetaInfo metaInfo) throws IOException {
-    final int handshakeMessageSize = 1 + 19 + 8 + 20 + 20;
+    int handshakeMessageSize = 1 + 19 + 8 + 20 + 20;
 
 
-    final ByteBuffer payloadBuffer = ByteBuffer.allocate(handshakeMessageSize);
+    ByteBuffer payloadBuffer = ByteBuffer.allocate(handshakeMessageSize);
 
     payloadBuffer
         .put((byte) 19)
@@ -95,15 +97,15 @@ public class Networks {
 
     socket.getOutputStream().write(payloadBuffer.array());
 
-    final byte[] handshakeResponse = new byte[handshakeMessageSize];
+    byte[] handshakeResponse = new byte[handshakeMessageSize];
     socket.getInputStream().read(handshakeResponse);
 
-    final byte[] peerIdResponse = new byte[20];
-    final ByteBuffer wrap = ByteBuffer.wrap(handshakeResponse);
+    byte[] peerIdResponse = new byte[20];
+    ByteBuffer wrap = ByteBuffer.wrap(handshakeResponse);
     wrap.position(48);
     wrap.get(peerIdResponse, 0, 20);
 
-    System.out.println("Peer ID: " + Main.asHex(peerIdResponse));
+    System.out.println(Thread.currentThread().getName() + " Peer ID: " + Main.asHex(peerIdResponse));
 
     return handshakeResponse;
   }
@@ -124,7 +126,7 @@ public class Networks {
     //	// for each block
     sendRequestForPiece(pieceId, pieceLength, socket);
 
-    System.out.printf("For Piece : [%d] of possible Size :[%d] Sent Requests for Blocks of size %d\n", pieceId, pieceLength, BLOCK_SIZE);
+    System.out.printf(Thread.currentThread().getName() + "For Piece : [%d] of possible Size :[%d] Sent Requests for Blocks of size %d\n", pieceId, pieceLength, BLOCK_SIZE);
 
     byte[] combinedBlockToPiece = downloadRequestedPiece(pieceId, pieceLength, socket);
 
@@ -146,15 +148,15 @@ public class Networks {
         blockSize = pieceLength - begin;
       }
 
-      final ByteBuffer payload = ByteBuffer.allocate(12);
+      ByteBuffer payload = ByteBuffer.allocate(12);
       payload.order(ByteOrder.BIG_ENDIAN).putInt(pieceId);
       payload.order(ByteOrder.BIG_ENDIAN).putInt(begin);
       payload.order(ByteOrder.BIG_ENDIAN).putInt(blockSize);
 
-      final byte[] requestPayload = payload.array();
+      byte[] requestPayload = payload.array();
 
-      final byte[] peerMessage = createPeerMessage(REQUEST, requestPayload);
-      System.out.printf("begin = %d -- size = [%d] -- peerMessage = %s%n", begin, blockSize, Arrays.toString(peerMessage));
+      byte[] peerMessage = createPeerMessage(REQUEST, requestPayload);
+      System.out.printf(Thread.currentThread().getName() + " piece = %d -- begin = %d -- size = [%d] -- peerMessage = %s%n", pieceId, begin, blockSize, Arrays.toString(peerMessage));
 
       socket.getOutputStream().write(peerMessage);
     }
