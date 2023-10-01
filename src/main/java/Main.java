@@ -1,7 +1,12 @@
+import com.dampcake.bencode.Bencode;
+import com.dampcake.bencode.Type;
 import com.google.gson.Gson;
+
+import java.util.Objects;
 
 public class Main {
   private static final Gson gson = new Gson();
+  private static final Bencode bencode = new Bencode();
 
   public static void main(String[] args) throws Exception {
     // You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -10,9 +15,9 @@ public class Main {
     if("decode".equals(command)) {
       //  Uncomment this block to pass the first stage
         String bencodedValue = args[1];
-        String decoded;
+        Object decoded;
         try {
-          decoded = decodeBencode(bencodedValue);
+          decoded = bencode.decode(bencodedValue.getBytes(), bencode.type(bencodedValue.getBytes()));
         } catch(RuntimeException e) {
           System.out.println(e.getMessage());
           return;
