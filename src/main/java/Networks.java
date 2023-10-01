@@ -118,7 +118,7 @@ public class Networks {
     }
   }
 
-  byte[] downloadPiece(int pieceId, int pieceLength, Socket socket, List<String> pieceHashes) throws IOException {
+  static byte[] downloadPiece(int pieceId, int pieceLength, Socket socket, List<String> pieceHashes) throws IOException {
     //	//fmt.Printf("PieceHash for id: %d --> %x\n", pieceId, pieces[pieceId])
     //	// say 256 KB
     //	// for each block
@@ -136,38 +136,7 @@ public class Networks {
     return combinedBlockToPiece;
   }
 
-  boolean verifyPiece(byte[] combinedBlockToPiece, List<String> pieces, int pieceId) {
-    try {
-      String checksumStr = Main.asHex(MessageDigest.getInstance("SHA-1").digest(combinedBlockToPiece));
-      return checksumStr.equals(pieces.get(pieceId));
-    } catch (NoSuchAlgorithmException e) {
-      throw new RuntimeException(e);
-    }
-  }
-
-  public byte[] downloadRequestedPiece(int pieceId, int pieceLength, Socket socket) throws IOException {
-    int blockCount = calculateBlockCount(pieceLength);
-
-    byte[] combinedBlockToPiece = new byte[pieceLength];
-
-    for (int i = 0; i < blockCount; i++) {
-      byte[] data = waitFor(socket, PIECE);// PIECE
-
-      ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
-
-      int index = buffer.getInt();
-      if (index != pieceId) {
-        throw new RuntimeException(String.format("something went wrong [expected: %d -- actual: %d]", pieceId, index));
-      }
-      int begin = buffer.getInt();
-      byte[] block = new byte[data.length - 8];
-      buffer.get(block);
-      System.arraycopy(block, 0, combinedBlockToPiece, begin, block.length);
-    }
-    return combinedBlockToPiece;
-  }
-
-  void sendRequestForPiece(int pieceId, int pieceLength, Socket socket) throws IOException {
+  static void sendRequestForPiece(int pieceId, int pieceLength, Socket socket) throws IOException {
     int blockCount = calculateBlockCount(pieceLength);
 
     for (int i = 0; i < blockCount; i++) {
@@ -191,13 +160,44 @@ public class Networks {
     }
   }
 
-  private int calculateBlockCount(int pieceLength) {
+  static int calculateBlockCount(int pieceLength) {
     int carry = 0;
-    if (pieceLength % this.BLOCK_SIZE > 0) {
+    if (pieceLength % BLOCK_SIZE > 0) {
       carry = 1;
     }
-    int count = pieceLength / this.BLOCK_SIZE + carry;
+    int count = pieceLength / BLOCK_SIZE + carry;
     return count;
+  }
+
+  static boolean verifyPiece(byte[] combinedBlockToPiece, List<String> pieces, int pieceId) {
+    try {
+      String checksumStr = Main.asHex(MessageDigest.getInstance("SHA-1").digest(combinedBlockToPiece));
+      return checksumStr.equals(pieces.get(pieceId));
+    } catch (NoSuchAlgorithmException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  static byte[] downloadRequestedPiece(int pieceId, int pieceLength, Socket socket) throws IOException {
+    int blockCount = calculateBlockCount(pieceLength);
+
+    byte[] combinedBlockToPiece = new byte[pieceLength];
+
+    for (int i = 0; i < blockCount; i++) {
+      byte[] data = waitFor(socket, PIECE);// PIECE
+
+      ByteBuffer buffer = ByteBuffer.wrap(data).order(ByteOrder.BIG_ENDIAN);
+
+      int index = buffer.getInt();
+      if (index != pieceId) {
+        throw new RuntimeException(String.format("something went wrong [expected: %d -- actual: %d]", pieceId, index));
+      }
+      int begin = buffer.getInt();
+      byte[] block = new byte[data.length - 8];
+      buffer.get(block);
+      System.arraycopy(block, 0, combinedBlockToPiece, begin, block.length);
+    }
+    return combinedBlockToPiece;
   }
 
 

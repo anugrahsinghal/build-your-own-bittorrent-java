@@ -1,6 +1,8 @@
 import com.dampcake.bencode.Bencode;
 import com.dampcake.bencode.Type;
 import com.google.gson.Gson;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
 import okhttp3.*;
 
 import java.io.File;
@@ -19,121 +21,133 @@ import java.security.NoSuchAlgorithmException;
 import java.util.*;
 
 public class Main {
-  private static final Gson gson = new Gson();
-  private static final Bencode bencode = new Bencode(true);
+  private static final Gson GSON = new Gson();
+  private static final Bencode BENCODE = new Bencode(true);
 
-  public static void main(String[] args) throws Exception {
+  static void main(String[] args) throws Exception {
     String command = args[0];
     if ("decode".equals(command)) {
       String bencodedValue = args[1];
       Object decoded;
       try {
-        final Bencode bencodeSimple = new Bencode();
+        Bencode bencodeSimple = new Bencode();
         decoded = bencodeSimple.decode(bencodedValue.getBytes(), bencodeSimple.type(bencodedValue.getBytes()));
       } catch (RuntimeException e) {
         System.out.println(e.getMessage());
         return;
       }
-      System.out.println(gson.toJson(decoded));
+      System.out.println(GSON.toJson(decoded));
 
-    } else if ("info".equals(command)) {
-      final byte[] torrentFile = Files.readAllBytes(Paths.get(args[1]));
+      return;
+    }
+    switch (command) {
 
-      final MetaInfo metaInfo = convertToMetaInfoObject(bencode.decode(torrentFile, Type.DICTIONARY));
+      case "info": {
+        byte[] torrentFile = Files.readAllBytes(Paths.get(args[1]));
 
-      System.out.printf("Tracker URL: %s\n", metaInfo.announce);
-      System.out.printf("Length: %s\n", metaInfo.info.length);
-      System.out.printf("Info Hash: %s\n", asHex(getInfoHash(metaInfo.info)));
-      System.out.printf("Piece Length: %s\n", metaInfo.info.pieceLength);
-      System.out.println("Piece Hashes:");
-      List<String> pieceHashes = getPieceHashes(metaInfo.info.pieces);
-      pieceHashes.forEach(System.out::println);
+        MetaInfo metaInfo = convertToMetaInfo(BENCODE.decode(torrentFile, Type.DICTIONARY));
+
+        System.out.printf("Tracker URL: %s\n", metaInfo.announce);
+        System.out.printf("Length: %s\n", metaInfo.info.length);
+        System.out.printf("Info Hash: %s\n", asHex(getInfoHash(metaInfo.info)));
+        System.out.printf("Piece Length: %s\n", metaInfo.info.pieceLength);
+        System.out.println("Piece Hashes:");
+        List<String> pieceHashes = getPieceHashes(metaInfo.info.pieces);
+        pieceHashes.forEach(System.out::println);
 
 
-    } else if ("peers".equals(command)) {
-      final byte[] torrentFile = Files.readAllBytes(Paths.get(args[1]));
-
-      final MetaInfo metaInfo = convertToMetaInfoObject(bencode.decode(torrentFile, Type.DICTIONARY));
-
-      final List<Peer> peers = getPeersFromTracker(metaInfo);
-      System.out.println("Peers:");
-      peers.forEach(System.out::println);
-
-    } else if ("handshake".equals(command)) {
-      final byte[] torrentFile = Files.readAllBytes(Paths.get(args[1]));
-
-      final MetaInfo metaInfo = convertToMetaInfoObject(bencode.decode(torrentFile, Type.DICTIONARY));
-
-      final String[] peerAddr = args[2].split(":");
-
-      final Socket socket = Networks.createConnection(peerAddr[0], Integer.parseInt(peerAddr[1]));
-      Networks.performHandshake(socket, metaInfo);
-
-      socket.close();
-
-    } else if ("download_piece".equals(command)) {
-      //./your_bittorrent.sh download_piece -o /tmp/test-piece-0 sample.torrent 0
-      final String outputPath = args[2];
-      final int pieceId = Integer.parseInt(args[4]);
-      final byte[] torrentFile = Files.readAllBytes(Paths.get(args[3]));
-
-      final MetaInfo metaInfo = convertToMetaInfoObject(bencode.decode(torrentFile, Type.DICTIONARY));
-
-      final List<Peer> peers = getPeersFromTracker(metaInfo);
-
-      final Socket socket = Networks.createConnection(peers.get(0).ip.getHostAddress(), peers.get(0).port);
-
-      Networks.preDownload(socket, metaInfo);
-
-      final List<String> pieceHashes = getPieceHashes(metaInfo.info.pieces);
-
-      final Networks networks = new Networks();
-      final int pieceLength = pieceLength(pieceId, pieceHashes, metaInfo);
-      final byte[] piece = networks.downloadPiece(pieceId, pieceLength, socket, pieceHashes);
-
-      Files.write(new File(outputPath).toPath(), piece);
-
-      System.out.printf("Piece %s downloaded to %s\n", pieceId, outputPath);
-
-      socket.close();
-
-    } else if ("download".equals(command)) {
-
-      //./your_bittorrent.sh download -o /tmp/test.txt sample.torrent
-      final String outputPath = args[2];
-      final byte[] torrentFile = Files.readAllBytes(Paths.get(args[3]));
-
-      final MetaInfo metaInfo = convertToMetaInfoObject(bencode.decode(torrentFile, Type.DICTIONARY));
-
-      final List<Peer> peers = getPeersFromTracker(metaInfo);
-
-      final Socket socket = Networks.createConnection(peers.get(0).ip.getHostAddress(), peers.get(0).port);
-
-      Networks.preDownload(socket, metaInfo);
-
-      final List<String> pieceHashes = getPieceHashes(metaInfo.info.pieces);
-
-      final Networks networks = new Networks();
-
-      List<byte[]> pieces = new ArrayList<>();
-      for (int pieceId = 0; pieceId < pieceHashes.size(); pieceId++) {
-        final int pieceLength = pieceLength(pieceId, pieceHashes, metaInfo);
-        final byte[] piece = networks.downloadPiece(pieceId, pieceLength, socket, pieceHashes);
-        pieces.add(piece);
+        break;
       }
+      case "peers": {
+        byte[] torrentFile = Files.readAllBytes(Paths.get(args[1]));
 
-      final ByteBuffer allBytes = ByteBuffer.allocate((int) metaInfo.info.length);
+        MetaInfo metaInfo = convertToMetaInfo(BENCODE.decode(torrentFile, Type.DICTIONARY));
 
-      pieces.forEach(allBytes::put);
+        List<Peer> peers = getPeersFromTracker(metaInfo);
+        System.out.println("Peers:");
+        peers.forEach(System.out::println);
 
-      Files.write(new File(outputPath).toPath(), allBytes.array());
+        break;
+      }
+      case "handshake": {
+        byte[] torrentFile = Files.readAllBytes(Paths.get(args[1]));
 
-      System.out.printf("Downloaded %s to %s.%n", args[3], outputPath);
+        MetaInfo metaInfo = convertToMetaInfo(BENCODE.decode(torrentFile, Type.DICTIONARY));
 
-      socket.close();
+        String[] peerAddr = args[2].split(":");
 
-    } else {
-      System.out.println("Unknown command: " + command);
+        Socket socket = Networks.createConnection(peerAddr[0], Integer.parseInt(peerAddr[1]));
+        Networks.performHandshake(socket, metaInfo);
+
+        socket.close();
+
+        break;
+      }
+      case "download_piece": {
+        //./your_bittorrent.sh download_piece -o /tmp/test-piece-0 sample.torrent 0
+        String outputPath = args[2];
+        byte[] torrentFile = Files.readAllBytes(Paths.get(args[3]));
+
+        MetaInfo metaInfo = convertToMetaInfo(BENCODE.decode(torrentFile, Type.DICTIONARY));
+
+        List<Peer> peers = getPeersFromTracker(metaInfo);
+
+        Socket socket = Networks.createConnection(peers.get(0).ip.getHostAddress(), peers.get(0).port);
+
+        Networks.preDownload(socket, metaInfo);
+
+        List<String> pieceHashes = getPieceHashes(metaInfo.info.pieces);
+
+        int pieceId = Integer.parseInt(args[4]);
+        int pieceLength = pieceLength(pieceId, pieceHashes, metaInfo);
+        byte[] piece = Networks.downloadPiece(pieceId, pieceLength, socket, pieceHashes);
+
+        Files.write(new File(outputPath).toPath(), piece);
+
+        System.out.printf("Piece %s downloaded to %s\n", pieceId, outputPath);
+
+        socket.close();
+
+        break;
+      }
+      case "download": {
+
+        //./your_bittorrent.sh download -o /tmp/test.txt sample.torrent
+        String outputPath = args[2];
+        byte[] torrentFile = Files.readAllBytes(Paths.get(args[3]));
+
+        MetaInfo metaInfo = convertToMetaInfo(BENCODE.decode(torrentFile, Type.DICTIONARY));
+
+        List<Peer> peers = getPeersFromTracker(metaInfo);
+
+        Socket socket = Networks.createConnection(peers.get(0).ip.getHostAddress(), peers.get(0).port);
+
+        Networks.preDownload(socket, metaInfo);
+
+        List<String> pieceHashes = getPieceHashes(metaInfo.info.pieces);
+
+        List<byte[]> pieces = new ArrayList<>();
+        for (int pieceId = 0; pieceId < pieceHashes.size(); pieceId++) {
+          int pieceLength = pieceLength(pieceId, pieceHashes, metaInfo);
+          byte[] piece = Networks.downloadPiece(pieceId, pieceLength, socket, pieceHashes);
+          pieces.add(piece);
+        }
+
+        ByteBuffer allBytes = ByteBuffer.allocate((int) metaInfo.info.length);
+
+        pieces.forEach(allBytes::put);
+
+        Files.write(new File(outputPath).toPath(), allBytes.array());
+
+        System.out.printf("Downloaded %s to %s.%n", args[3], outputPath);
+
+        socket.close();
+
+        break;
+      }
+      default:
+        System.out.println("Unknown command: " + command);
+        break;
     }
 
   }
@@ -149,8 +163,8 @@ public class Main {
   }
 
   static List<Peer> getPeersFromTracker(MetaInfo metaInfo) throws IOException {
-    final byte[] infoHash = getInfoHash(metaInfo.info);
-    final String urlEncodedInfoHash = URLEncoder.encode(new String(infoHash, StandardCharsets.ISO_8859_1), StandardCharsets.ISO_8859_1.toString());
+    byte[] infoHash = getInfoHash(metaInfo.info);
+    String urlEncodedInfoHash = URLEncoder.encode(new String(infoHash, StandardCharsets.ISO_8859_1), StandardCharsets.ISO_8859_1.toString());
 
     HttpUrl.Builder urlBuilder =
         HttpUrl.parse(metaInfo.announce).newBuilder()
@@ -173,23 +187,25 @@ public class Main {
     Call call = client.newCall(request);
     Response response = call.execute();
 
-    final byte[] responseBytes = Objects.requireNonNull(response.body()).bytes();
-    final Map<String, Object> trackerResponseMap = bencode.decode(responseBytes, Type.DICTIONARY);
+    byte[] responseBytes = Objects.requireNonNull(response.body()).bytes();
+    Map<String, Object> trackerResponseMap = BENCODE.decode(responseBytes, Type.DICTIONARY);
 
-    final TrackerResponse trackerResponse = convertToTrackerResponse(trackerResponseMap);
+    TrackerResponse trackerResponse = new TrackerResponse(
+        (long) trackerResponseMap.get("interval"),
+        (ByteBuffer) trackerResponseMap.get("peers")
+    );
 
-    final List<Peer> peers = extractPeers(trackerResponse);
+    List<Peer> peers = extractPeers(trackerResponse);
     return peers;
   }
 
-
-  private static List<Peer> extractPeers(TrackerResponse trackerResponse) throws UnknownHostException {
+  static List<Peer> extractPeers(TrackerResponse trackerResponse) throws UnknownHostException {
     List<Peer> peers = new ArrayList<>();
-    final int numPeers = trackerResponse.peers.remaining() / 6;
+    int numPeers = trackerResponse.peers.remaining() / 6;
 
     for (int i = 0; i < numPeers; i++) {
-      final byte[] IP = new byte[4];
-      final byte[] PORT = new byte[2];
+      byte[] IP = new byte[4];
+      byte[] PORT = new byte[2];
       trackerResponse.peers.get(IP);
       trackerResponse.peers.get(PORT);
 
@@ -201,30 +217,26 @@ public class Main {
     return peers;
   }
 
-  private static TrackerResponse convertToTrackerResponse(Map<String, Object> trackerResponseMap) {
-    final TrackerResponse trackerResponse = new TrackerResponse();
-    trackerResponse.interval = (long) trackerResponseMap.get("interval");
-    trackerResponse.peers = (ByteBuffer) trackerResponseMap.get("peers");
-    return trackerResponse;
+  static MetaInfo convertToMetaInfo(Map<String, Object> torrentFileDecoded) {
+    Map<String, Object> infoMap = (Map<String, Object>) torrentFileDecoded.get("info");
+
+
+    return new MetaInfo(
+        bufferToString(torrentFileDecoded.get("announce")),
+        new Info(
+            (long) infoMap.get("length"),
+            bufferToString(infoMap.get("name")),
+            (long) infoMap.get("piece length"),
+            (ByteBuffer) infoMap.get("pieces")
+        )
+    );
   }
 
-  private static MetaInfo convertToMetaInfoObject(Map<String, Object> torrentFileDecoded) {
-    final Map<String, Object> infoMap = (Map<String, Object>) torrentFileDecoded.get("info");
-
-
-    final Info info = new Info();
-    info.length = (long) infoMap.get("length");
-    info.name = new String(((ByteBuffer) infoMap.get("name")).array());
-    info.pieceLength = (long) infoMap.get("piece length");
-    info.pieces = (ByteBuffer) infoMap.get("pieces");
-
-    final MetaInfo metaInfo = new MetaInfo();
-    metaInfo.announce = new String(((ByteBuffer) torrentFileDecoded.get("announce")).array());
-    metaInfo.info = info;
-    return metaInfo;
+  static String bufferToString(Object byteBuffer) {
+    return new String(((ByteBuffer) byteBuffer).array());
   }
 
-  public static List<String> getPieceHashes(ByteBuffer pieces) {
+  static List<String> getPieceHashes(ByteBuffer pieces) {
     List<String> pieceHashes = new ArrayList<>();
 
     byte[] byteArray = new byte[20];
@@ -240,14 +252,14 @@ public class Main {
   }
 
   static byte[] getInfoHash(Info info) {
-    final HashMap<String, Object> infoMap = new HashMap<>();
+    HashMap<String, Object> infoMap = new HashMap<>();
 
     infoMap.put("length", info.length);
     infoMap.put("name", info.name);
     infoMap.put("piece length", info.pieceLength);
     infoMap.put("pieces", info.pieces);
 
-    final byte[] encodedInfo = bencode.encode(infoMap);
+    byte[] encodedInfo = BENCODE.encode(infoMap);
 
     try {
       return MessageDigest.getInstance("SHA-1").digest(encodedInfo);
@@ -268,28 +280,34 @@ public class Main {
 
 }
 
+@Getter
+@AllArgsConstructor
 class MetaInfo {
   String announce;
   Info info;
 }
+
+@Getter
+@AllArgsConstructor
 class Info {
   long length;
   String name;
   long pieceLength;
   ByteBuffer pieces;
 }
+
+@Getter
+@AllArgsConstructor
 class TrackerResponse {
   long interval;
   ByteBuffer peers;
 }
+
+@Getter
+@AllArgsConstructor
 class Peer {
   InetAddress ip;
   int port;
-
-  public Peer(InetAddress ip, int port) {
-    this.ip = ip;
-    this.port = port;
-  }
 
   @Override
   public String toString() {
