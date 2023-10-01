@@ -18,7 +18,8 @@ public class Networks {
   public static final byte BIT_FIELD = 5;
   public static final byte UNCHOKE = 1;
   public static final byte INTERESTED = 2;
-  public static final int BlockSize = 16 * 1024;
+
+  public static final int BLOCK_SIZE = 16 * 1024;
 
   static byte[] createPeerMessage(int messageId, byte[] payload) {
 //    byte[] messsage = new byte[4+1+payload.length];
@@ -123,7 +124,7 @@ public class Networks {
     //	// for each block
     sendRequestForPiece(pieceId, pieceLength, socket);
 
-    System.out.printf("For Piece : [%d] of possible Size :[%d] Sent Requests for Blocks of size %d\n", pieceId, pieceLength, BlockSize);
+    System.out.printf("For Piece : [%d] of possible Size :[%d] Sent Requests for Blocks of size %d\n", pieceId, pieceLength, BLOCK_SIZE);
 
     byte[] combinedBlockToPiece = downloadRequestedPiece(pieceId, pieceLength, socket);
 
@@ -170,9 +171,9 @@ public class Networks {
     int blockCount = calculateBlockCount(pieceLength);
 
     for (int i = 0; i < blockCount; i++) {
-      int begin = i * BlockSize;
-      int blockSize = BlockSize;
-      if ((pieceLength - begin) < BlockSize) {
+      int begin = i * BLOCK_SIZE;
+      int blockSize = BLOCK_SIZE;
+      if ((pieceLength - begin) < BLOCK_SIZE) {
         blockSize = pieceLength - begin;
       }
 
@@ -192,10 +193,10 @@ public class Networks {
 
   private int calculateBlockCount(int pieceLength) {
     int carry = 0;
-    if (pieceLength % this.BlockSize > 0) {
+    if (pieceLength % this.BLOCK_SIZE > 0) {
       carry = 1;
     }
-    int count = pieceLength / this.BlockSize + carry;
+    int count = pieceLength / this.BLOCK_SIZE + carry;
     return count;
   }
 

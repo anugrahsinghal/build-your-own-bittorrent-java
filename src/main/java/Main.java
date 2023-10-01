@@ -72,7 +72,7 @@ public class Main {
       socket.close();
 
     } else if ("download_piece".equals(command)) {
-      // download_piece -o /tmp/test-piece-0 sample.torrent 0
+      //./your_bittorrent.sh download_piece -o /tmp/test-piece-0 sample.torrent 0
       final String outputPath = args[2];
       final int pieceId = Integer.parseInt(args[4]);
       final byte[] torrentFile = Files.readAllBytes(Paths.get(args[3]));
@@ -90,13 +90,45 @@ public class Main {
       final Networks networks = new Networks();
       final int pieceLength = pieceLength(pieceId, pieceHashes, metaInfo);
       final byte[] piece = networks.downloadPiece(pieceId, pieceLength, socket, pieceHashes);
-//    pieces := getPieces(metaInfo)
-//    piece := downloadPiece(pieceId, int(metaInfo.Info.PieceLength), connections[peer], pieces)
-//    err = os.WriteFile(os.Args[3], piece, os.ModePerm)
 
       Files.write(new File(outputPath).toPath(), piece);
 
       System.out.printf("Piece %s downloaded to %s\n", pieceId, outputPath);
+
+      socket.close();
+
+    } else if ("download".equals(command)) {
+
+      //./your_bittorrent.sh download -o /tmp/test.txt sample.torrent
+      final String outputPath = args[2];
+      final byte[] torrentFile = Files.readAllBytes(Paths.get(args[3]));
+
+      final MetaInfo metaInfo = convertToMetaInfoObject(bencode.decode(torrentFile, Type.DICTIONARY));
+
+      final List<Peer> peers = getPeersFromTracker(metaInfo);
+
+      final Socket socket = Networks.createConnection(peers.get(0).ip.getHostAddress(), peers.get(0).port);
+
+      Networks.preDownload(socket, metaInfo);
+
+      final List<String> pieceHashes = getPieceHashes(metaInfo.info.pieces);
+
+      final Networks networks = new Networks();
+
+      List<byte[]> pieces = new ArrayList<>();
+      for (int pieceId = 0; pieceId < pieceHashes.size(); pieceId++) {
+        final int pieceLength = pieceLength(pieceId, pieceHashes, metaInfo);
+        final byte[] piece = networks.downloadPiece(pieceId, pieceLength, socket, pieceHashes);
+        pieces.add(piece);
+      }
+
+      final ByteBuffer allBytes = ByteBuffer.allocate((int) metaInfo.info.length);
+
+      pieces.forEach(allBytes::put);
+
+      Files.write(new File(outputPath).toPath(), allBytes.array());
+
+      System.out.printf("Downloaded %s to %s.%n", args[3], outputPath);
 
       socket.close();
 
