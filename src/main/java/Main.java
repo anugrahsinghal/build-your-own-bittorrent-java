@@ -2,11 +2,9 @@ import com.dampcake.bencode.Bencode;
 import com.dampcake.bencode.Type;
 import com.google.gson.Gson;
 import okhttp3.*;
-import org.jetbrains.annotations.NotNull;
 
-import java.net.InetAddress;
-import java.net.URLEncoder;
-import java.net.UnknownHostException;
+import javax.net.SocketFactory;
+import java.net.*;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
@@ -86,6 +84,38 @@ public class Main {
       System.out.println("Peers:");
       peers.forEach(System.out::println);
 
+    } else if ("handshake".equals(command)) {
+      final byte[] torrentFile = Files.readAllBytes(Paths.get(args[1]));
+
+      final MetaInfo metaInfo = convertToMetaInfoObject(bencode.decode(torrentFile, Type.DICTIONARY));
+
+      final String[] peerAddr = args[2].split(":");
+
+      try(Socket socket = SocketFactory.getDefault().createSocket()) {
+        socket.connect(new InetSocketAddress(peerAddr[0], Integer.parseInt(peerAddr[1])));
+
+        final int handshakeMessageSize = 1 + 19 + 8 + 20 + 20;
+        final ByteBuffer payloadBuffer = ByteBuffer.allocate(handshakeMessageSize);
+
+        payloadBuffer
+            .put((byte) 19)
+            .put("BitTorrent protocol".getBytes())
+            .put(new byte[8])
+            .put(getInfoHash(metaInfo.info))
+            .put("00112233445566778899".getBytes());
+
+        socket.getOutputStream().write(payloadBuffer.array());
+
+        final byte[] handshakeResponse = new byte[handshakeMessageSize];
+        socket.getInputStream().read(handshakeResponse);
+
+        final byte[] peerIdResponse = new byte[20];
+        final ByteBuffer wrap = ByteBuffer.wrap(handshakeResponse);
+        wrap.position(48);
+        wrap.get(peerIdResponse, 0, 20);
+
+        System.out.println("Peer ID: " + asHex(peerIdResponse));
+      }
 
     } else {
       System.out.println("Unknown command: " + command);
@@ -93,7 +123,6 @@ public class Main {
 
   }
 
-  @NotNull
   private static List<Peer> extractPeers(TrackerResponse trackerResponse) throws UnknownHostException {
     List<Peer> peers = new ArrayList<>();
     final int numPeers = trackerResponse.peers.remaining() / 6;
@@ -104,7 +133,7 @@ public class Main {
       trackerResponse.peers.get(IP);
       trackerResponse.peers.get(PORT);
 
-      String ip = InetAddress.getByAddress(IP).getHostAddress();
+      InetAddress ip = InetAddress.getByAddress(IP);
       int port = Short.toUnsignedInt(ByteBuffer.wrap(PORT).order(ByteOrder.BIG_ENDIAN).getShort());
 
       peers.add(new Peer(ip, port));
@@ -196,17 +225,17 @@ class TrackerResponse {
   ByteBuffer peers;
 }
 class Peer {
-  String ip;
+  InetAddress ip;
   int port;
 
-  public Peer(String ip, int port) {
+  public Peer(InetAddress ip, int port) {
     this.ip = ip;
     this.port = port;
   }
 
   @Override
   public String toString() {
-    return String.format("%s:%s", ip, port);
+    return String.format("%s:%s", ip.getHostAddress(), port);
   }
 }
 
