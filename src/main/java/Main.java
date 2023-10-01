@@ -10,7 +10,9 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 
 public class Main {
@@ -55,10 +57,34 @@ public class Main {
       final String infoHash = getInfoHash(torrentFileDecoded);
       System.out.printf("Info Hash: %s\n", infoHash);
 
+      System.out.printf("Piece Length: %s\n", info.get("piece length"));
+
+      System.out.println("Piece Hashes:");
+      List<String> pieceHashes = getPieceHashes(torrentFileDecoded);
+      pieceHashes.forEach(System.out::println);
+      //e876f67a2a8886e8f36b136726c30fa29703022d
+      //6e2275e604a0766656736e81ff10b55204ad8d35
+      //f00d937a0213df1982bc8d097227ad9e909acc17
     } else {
       System.out.println("Unknown command: " + command);
     }
 
+  }
+
+  public static List<String> getPieceHashes(Map<String, Object> torrentFileDecoded) {
+    List<String> pieceHashes = new ArrayList<>();
+
+    final ByteBuffer pieces = (ByteBuffer) ((Map<?, ?>) torrentFileDecoded.get("info")).get("pieces");
+    byte[] byteArray = new byte[20];
+    while (pieces.remaining() >= 20) {
+      pieces.get(byteArray);
+      pieceHashes.add(asHex(byteArray.clone()));
+    }
+    if (pieces.remaining() != 0) {
+      throw new RuntimeException("not read all piece hashes");
+    }
+
+    return pieceHashes;
   }
 
   static void printInfoDict(Map<String, Object> info) throws IOException {
@@ -108,17 +134,21 @@ public class Main {
       md.update(input);
       byte[] digest = md.digest();
 
-      StringBuilder hexString = new StringBuilder();
-
-      for (byte b : digest) {
-        hexString.append(String.format("%02x", b));
-      }
-
-      return hexString.toString();
+      return asHex(digest);
     } catch (NoSuchAlgorithmException e) {
       throw new RuntimeException(e);
     }
 
+  }
+
+  private static String asHex(byte[] digest) {
+    StringBuilder hexString = new StringBuilder();
+
+    for (byte b : digest) {
+      hexString.append(String.format("%02x", b));
+    }
+
+    return hexString.toString();
   }
 
 }
