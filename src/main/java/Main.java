@@ -24,7 +24,7 @@ public class Main {
   private static final Gson GSON = new Gson();
   private static final Bencode BENCODE = new Bencode(true);
 
-  static void main(String[] args) throws Exception {
+  public static void main(String[] args) throws Exception {
     String command = args[0];
     if ("decode".equals(command)) {
       String bencodedValue = args[1];
