@@ -3,8 +3,12 @@ import com.dampcake.bencode.Type;
 import com.google.gson.Gson;
 import okhttp3.*;
 
-import javax.net.SocketFactory;
-import java.net.*;
+import java.io.File;
+import java.io.IOException;
+import java.net.InetAddress;
+import java.net.Socket;
+import java.net.URLEncoder;
+import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
@@ -51,36 +55,7 @@ public class Main {
 
       final MetaInfo metaInfo = convertToMetaInfoObject(bencode.decode(torrentFile, Type.DICTIONARY));
 
-      final byte[] infoHash = getInfoHash(metaInfo.info);
-      final String urlEncodedInfoHash = URLEncoder.encode(new String(infoHash, StandardCharsets.ISO_8859_1), StandardCharsets.ISO_8859_1.toString());
-
-      HttpUrl.Builder urlBuilder =
-          HttpUrl.parse(metaInfo.announce).newBuilder()
-              .addEncodedQueryParameter("info_hash", urlEncodedInfoHash)
-              .addQueryParameter("peer_id", "00112233445566778899")
-              .addQueryParameter("port", "6881")
-              .addQueryParameter("uploaded", "0")
-              .addQueryParameter("downloaded", "0")
-              .addQueryParameter("left", String.valueOf(metaInfo.info.length))
-              .addQueryParameter("compact", "1");
-
-      String url = urlBuilder.build().toString();
-
-      System.out.println("url = " + url);
-
-      Request request = new Request.Builder().get().url(url).build();
-
-      OkHttpClient client = new OkHttpClient();
-
-      Call call = client.newCall(request);
-      Response response = call.execute();
-
-      final byte[] responseBytes = Objects.requireNonNull(response.body()).bytes();
-      final Map<String, Object> trackerResponseMap = bencode.decode(responseBytes, Type.DICTIONARY);
-
-      final TrackerResponse trackerResponse = convertToTrackerResponse(trackerResponseMap);
-
-      final List<Peer> peers = extractPeers(trackerResponse);
+      final List<Peer> peers = getPeersFromTracker(metaInfo);
       System.out.println("Peers:");
       peers.forEach(System.out::println);
 
@@ -91,37 +66,90 @@ public class Main {
 
       final String[] peerAddr = args[2].split(":");
 
-      try(Socket socket = SocketFactory.getDefault().createSocket()) {
-        socket.connect(new InetSocketAddress(peerAddr[0], Integer.parseInt(peerAddr[1])));
+      final Socket socket = Networks.createConnection(peerAddr[0], Integer.parseInt(peerAddr[1]));
+      Networks.performHandshake(socket, metaInfo);
 
-        final int handshakeMessageSize = 1 + 19 + 8 + 20 + 20;
-        final ByteBuffer payloadBuffer = ByteBuffer.allocate(handshakeMessageSize);
+      socket.close();
 
-        payloadBuffer
-            .put((byte) 19)
-            .put("BitTorrent protocol".getBytes())
-            .put(new byte[8])
-            .put(getInfoHash(metaInfo.info))
-            .put("00112233445566778899".getBytes());
+    } else if ("download_piece".equals(command)) {
+      // download_piece -o /tmp/test-piece-0 sample.torrent 0
+      final String outputPath = args[2];
+      final int pieceId = Integer.parseInt(args[4]);
+      final byte[] torrentFile = Files.readAllBytes(Paths.get(args[3]));
 
-        socket.getOutputStream().write(payloadBuffer.array());
+      final MetaInfo metaInfo = convertToMetaInfoObject(bencode.decode(torrentFile, Type.DICTIONARY));
 
-        final byte[] handshakeResponse = new byte[handshakeMessageSize];
-        socket.getInputStream().read(handshakeResponse);
+      final List<Peer> peers = getPeersFromTracker(metaInfo);
 
-        final byte[] peerIdResponse = new byte[20];
-        final ByteBuffer wrap = ByteBuffer.wrap(handshakeResponse);
-        wrap.position(48);
-        wrap.get(peerIdResponse, 0, 20);
+      final Socket socket = Networks.createConnection(peers.get(0).ip.getHostAddress(), peers.get(0).port);
 
-        System.out.println("Peer ID: " + asHex(peerIdResponse));
-      }
+      Networks.preDownload(socket, metaInfo);
+
+      final List<String> pieceHashes = getPieceHashes(metaInfo.info.pieces);
+
+      final Networks networks = new Networks();
+      final int pieceLength = pieceLength(pieceId, pieceHashes, metaInfo);
+      final byte[] piece = networks.downloadPiece(pieceId, pieceLength, socket, pieceHashes);
+//    pieces := getPieces(metaInfo)
+//    piece := downloadPiece(pieceId, int(metaInfo.Info.PieceLength), connections[peer], pieces)
+//    err = os.WriteFile(os.Args[3], piece, os.ModePerm)
+
+      Files.write(new File(outputPath).toPath(), piece);
+
+      System.out.printf("Piece %s downloaded to %s\n", pieceId, outputPath);
+
+      socket.close();
 
     } else {
       System.out.println("Unknown command: " + command);
     }
 
   }
+
+  static int pieceLength(int pieceIndex, List<String> pieces, MetaInfo metaInfo) {
+    if (pieceIndex != pieces.size() - 1) {
+      return (int) metaInfo.info.pieceLength;
+    } else { // last piece
+      long lastPieceSize = metaInfo.info.length - (metaInfo.info.pieceLength * pieceIndex);
+      System.out.printf("Last Piece Size [%d - (%d*%d) = %d]\n", metaInfo.info.length, metaInfo.info.pieceLength, pieceIndex, lastPieceSize);
+      return (int) lastPieceSize;
+    }
+  }
+
+  static List<Peer> getPeersFromTracker(MetaInfo metaInfo) throws IOException {
+    final byte[] infoHash = getInfoHash(metaInfo.info);
+    final String urlEncodedInfoHash = URLEncoder.encode(new String(infoHash, StandardCharsets.ISO_8859_1), StandardCharsets.ISO_8859_1.toString());
+
+    HttpUrl.Builder urlBuilder =
+        HttpUrl.parse(metaInfo.announce).newBuilder()
+            .addEncodedQueryParameter("info_hash", urlEncodedInfoHash)
+            .addQueryParameter("peer_id", "00112233445566778899")
+            .addQueryParameter("port", "6881")
+            .addQueryParameter("uploaded", "0")
+            .addQueryParameter("downloaded", "0")
+            .addQueryParameter("left", String.valueOf(metaInfo.info.length))
+            .addQueryParameter("compact", "1");
+
+    String url = urlBuilder.build().toString();
+
+    System.out.println("url = " + url);
+
+    Request request = new Request.Builder().get().url(url).build();
+
+    OkHttpClient client = new OkHttpClient();
+
+    Call call = client.newCall(request);
+    Response response = call.execute();
+
+    final byte[] responseBytes = Objects.requireNonNull(response.body()).bytes();
+    final Map<String, Object> trackerResponseMap = bencode.decode(responseBytes, Type.DICTIONARY);
+
+    final TrackerResponse trackerResponse = convertToTrackerResponse(trackerResponseMap);
+
+    final List<Peer> peers = extractPeers(trackerResponse);
+    return peers;
+  }
+
 
   private static List<Peer> extractPeers(TrackerResponse trackerResponse) throws UnknownHostException {
     List<Peer> peers = new ArrayList<>();
@@ -179,7 +207,7 @@ public class Main {
     return pieceHashes;
   }
 
-  private static byte[] getInfoHash(Info info) {
+  static byte[] getInfoHash(Info info) {
     final HashMap<String, Object> infoMap = new HashMap<>();
 
     infoMap.put("length", info.length);
@@ -196,7 +224,7 @@ public class Main {
     }
   }
 
-  private static String asHex(byte[] digest) {
+  static String asHex(byte[] digest) {
     StringBuilder hexString = new StringBuilder();
 
     for (byte b : digest) {
@@ -212,14 +240,12 @@ class MetaInfo {
   String announce;
   Info info;
 }
-
 class Info {
   long length;
   String name;
   long pieceLength;
   ByteBuffer pieces;
 }
-
 class TrackerResponse {
   long interval;
   ByteBuffer peers;
